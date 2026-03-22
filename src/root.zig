@@ -8,6 +8,10 @@ pub const search = @import("search.zig");
 pub const Search = search;
 pub const clipboard = @import("clipboard.zig");
 pub const Clipboard = clipboard.Clipboard;
+pub const types = @import("types.zig");
+pub const input = @import("input.zig");
+pub const render = @import("render.zig");
+pub const editor_io = @import("editor_io.zig");
 
 test {
     _ = piece_table;
@@ -15,4 +19,7 @@ test {
     _ = document;
     _ = search;
     _ = clipboard;
+    _ = input;
+    _ = render;
+    _ = editor_io;
 }

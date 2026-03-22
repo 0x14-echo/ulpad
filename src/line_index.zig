@@ -30,6 +30,24 @@ pub const LineIndex = struct {
         return self.starts.items.len;
     }
 
+    pub fn lineStart(self: *const LineIndex, line: usize) usize {
+        return self.starts.items[line];
+    }
+
+    pub fn lineEnd(self: *const LineIndex, line: usize, doc_len: usize) usize {
+        if (line + 1 < self.starts.items.len) {
+            return self.starts.items[line + 1];
+        }
+        return doc_len;
+    }
+
+    pub fn lineContentEnd(self: *const LineIndex, line: usize, doc_len: usize) usize {
+        if (line + 1 < self.starts.items.len) {
+            return self.starts.items[line + 1] - 1;
+        }
+        return doc_len;
+    }
+
     pub fn lineOfOffset(self: *const LineIndex, offset: usize) usize {
         var left: usize = 0;
         var right: usize = self.starts.items.len;
@@ -55,4 +73,6 @@ test "rebuild tracks every line start" {
     try std.testing.expectEqual(@as(usize, 0), index.lineOfOffset(0));
     try std.testing.expectEqual(@as(usize, 1), index.lineOfOffset(4));
     try std.testing.expectEqual(@as(usize, 2), index.lineOfOffset(8));
+    try std.testing.expectEqual(@as(usize, 4), index.lineStart(1));
+    try std.testing.expectEqual(@as(usize, 7), index.lineContentEnd(1, 8));
 }

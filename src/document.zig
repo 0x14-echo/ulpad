@@ -17,6 +17,17 @@ pub const Document = struct {
         };
     }
 
+    pub fn initCopy(allocator: std.mem.Allocator, text: []const u8) !Document {
+        var lines = LineIndex.init(allocator);
+        errdefer lines.deinit();
+        try lines.rebuild(text);
+        return .{
+            .allocator = allocator,
+            .table = try PieceTable.initCopy(allocator, text),
+            .lines = lines,
+        };
+    }
+
     pub fn deinit(self: *Document) void {
         self.lines.deinit();
         self.table.deinit();
@@ -52,6 +63,22 @@ pub const Document = struct {
 
     pub fn byteLen(self: *const Document) usize {
         return self.table.byteLen();
+    }
+
+    pub fn lineOfOffset(self: *const Document, offset: usize) usize {
+        return self.lines.lineOfOffset(offset);
+    }
+
+    pub fn lineStart(self: *const Document, line: usize) usize {
+        return self.lines.lineStart(line);
+    }
+
+    pub fn lineEnd(self: *const Document, line: usize) usize {
+        return self.lines.lineEnd(line, self.byteLen());
+    }
+
+    pub fn lineContentEnd(self: *const Document, line: usize) usize {
+        return self.lines.lineContentEnd(line, self.byteLen());
     }
 
     fn rebuildLineIndex(self: *Document) !void {
