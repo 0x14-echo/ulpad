@@ -9,6 +9,7 @@ pub const NewlineMode = enum {
 pub const LoadResult = struct {
     doc: Document,
     newline_mode: NewlineMode,
+    file_exists: bool,
 };
 
 pub const LoadError = error{
@@ -37,12 +38,29 @@ pub fn loadDocument(
         return .{
             .doc = try Document.initCopy(allocator, normalized),
             .newline_mode = mode,
+            .file_exists = true,
         };
     }
 
     return .{
         .doc = try Document.initCopy(allocator, bytes),
         .newline_mode = mode,
+        .file_exists = true,
+    };
+}
+
+pub fn loadOrCreateDocument(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    path: []const u8,
+) LoadError!LoadResult {
+    return loadDocument(allocator, io, path) catch |err| switch (err) {
+        error.FileNotFound => .{
+            .doc = try Document.initEmpty(allocator),
+            .newline_mode = .lf,
+            .file_exists = false,
+        },
+        else => return err,
     };
 }
 
@@ -105,4 +123,20 @@ test "newline normalization strips carriage returns" {
     defer std.testing.allocator.free(normalized);
 
     try std.testing.expectEqualStrings("a\nb\n", normalized);
+}
+
+test "load or create returns an empty document for missing paths" {
+    const unique = "ulpad-missing-file-7b6074df8f0b";
+    const result = try loadOrCreateDocument(std.testing.allocator, std.testing.io, unique);
+    defer {
+        var doc = result.doc;
+        doc.deinit();
+    }
+
+    const actual = try result.doc.textAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(actual);
+
+    try std.testing.expectEqual(false, result.file_exists);
+    try std.testing.expectEqual(@as(usize, 1), result.doc.lineCount());
+    try std.testing.expectEqualStrings("", actual);
 }

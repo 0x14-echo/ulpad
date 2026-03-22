@@ -74,17 +74,22 @@ const Editor = struct {
         io: std.Io,
         path: ?[]const u8,
     ) !Editor {
-        var doc = try Document.initEmpty(allocator);
+        var doc: Document = undefined;
         var newline_mode: io_mod.NewlineMode = .lf;
         var owned_path: ?[]u8 = null;
+        var dirty = false;
 
         if (path) |file_path| {
-            const loaded = try io_mod.loadDocument(allocator, io, file_path);
-            doc.deinit();
+            const loaded = try io_mod.loadOrCreateDocument(allocator, io, file_path);
             doc = loaded.doc;
             newline_mode = loaded.newline_mode;
             owned_path = try allocator.dupe(u8, file_path);
+            dirty = !loaded.file_exists;
+        } else {
+            doc = try Document.initEmpty(allocator);
         }
+        errdefer doc.deinit();
+        errdefer if (owned_path) |existing| allocator.free(existing);
 
         var editor = Editor{
             .allocator = allocator,
@@ -100,7 +105,7 @@ const Editor = struct {
             .last_search = .empty,
             .file_path = owned_path,
             .newline_mode = newline_mode,
-            .dirty = false,
+            .dirty = dirty,
             .quit_armed = false,
             .should_quit = false,
             .screen = .{ .rows = 24, .cols = 80 },
@@ -577,4 +582,14 @@ fn writeAll(bytes: []const u8) !void {
             else => return error.WriteFailed,
         }
     }
+}
+
+test "editor init treats missing path as a new dirty document" {
+    var editor = try Editor.init(std.testing.allocator, std.testing.io, "ulpad-missing-editor-991d8d4f");
+    defer editor.deinit();
+
+    try std.testing.expect(editor.file_path != null);
+    try std.testing.expectEqualStrings("ulpad-missing-editor-991d8d4f", editor.file_path.?);
+    try std.testing.expect(editor.dirty);
+    try std.testing.expectEqual(@as(usize, 1), editor.doc.lineCount());
 }
