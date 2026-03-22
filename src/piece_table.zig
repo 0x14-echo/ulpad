@@ -1,0 +1,225 @@
+const std = @import("std");
+
+pub const PieceTable = struct {
+    const Source = enum {
+        original,
+        add,
+    };
+
+    const Piece = struct {
+        source: Source,
+        start: usize,
+        len: usize,
+    };
+
+    allocator: std.mem.Allocator,
+    original: []u8,
+    add: std.ArrayList(u8),
+    pieces: std.ArrayList(Piece),
+    len: usize,
+
+    pub fn initEmpty(allocator: std.mem.Allocator) PieceTable {
+        return .{
+            .allocator = allocator,
+            .original = &.{},
+            .add = .empty,
+            .pieces = .empty,
+            .len = 0,
+        };
+    }
+
+    pub fn initCopy(allocator: std.mem.Allocator, text: []const u8) !PieceTable {
+        var table = PieceTable.initEmpty(allocator);
+        errdefer table.deinit();
+
+        table.original = try allocator.dupe(u8, text);
+        if (text.len != 0) {
+            try table.pieces.append(allocator, .{
+                .source = .original,
+                .start = 0,
+                .len = text.len,
+            });
+            table.len = text.len;
+        }
+        return table;
+    }
+
+    pub fn deinit(self: *PieceTable) void {
+        self.allocator.free(self.original);
+        self.add.deinit(self.allocator);
+        self.pieces.deinit(self.allocator);
+    }
+
+    pub fn insert(self: *PieceTable, index: usize, bytes: []const u8) !void {
+        if (index > self.len) return error.IndexOutOfBounds;
+        if (bytes.len == 0) return;
+
+        const add_start = self.add.items.len;
+        try self.add.appendSlice(self.allocator, bytes);
+
+        const new_piece: Piece = .{
+            .source = .add,
+            .start = add_start,
+            .len = bytes.len,
+        };
+
+        if (self.pieces.items.len == 0) {
+            try self.pieces.append(self.allocator, new_piece);
+            self.len += bytes.len;
+            return;
+        }
+
+        var logical_offset: usize = 0;
+        for (self.pieces.items, 0..) |piece, piece_index| {
+            const piece_end = logical_offset + piece.len;
+            if (index <= piece_end) {
+                const within_piece = index - logical_offset;
+                if (within_piece == 0) {
+                    try self.pieces.insert(self.allocator, piece_index, new_piece);
+                } else if (within_piece == piece.len) {
+                    try self.pieces.insert(self.allocator, piece_index + 1, new_piece);
+                } else {
+                    self.pieces.items[piece_index].len = within_piece;
+                    const right_piece: Piece = .{
+                        .source = piece.source,
+                        .start = piece.start + within_piece,
+                        .len = piece.len - within_piece,
+                    };
+                    try self.pieces.insert(self.allocator, piece_index + 1, new_piece);
+                    try self.pieces.insert(self.allocator, piece_index + 2, right_piece);
+                }
+                self.len += bytes.len;
+                self.normalizePieces();
+                return;
+            }
+            logical_offset = piece_end;
+        }
+
+        try self.pieces.append(self.allocator, new_piece);
+        self.len += bytes.len;
+        self.normalizePieces();
+    }
+
+    pub fn delete(self: *PieceTable, start: usize, end: usize) !void {
+        if (start > end or end > self.len) return error.IndexOutOfBounds;
+        if (start == end) return;
+
+        var next_pieces: std.ArrayList(Piece) = .empty;
+        errdefer next_pieces.deinit(self.allocator);
+
+        var logical_offset: usize = 0;
+        for (self.pieces.items) |piece| {
+            const piece_start = logical_offset;
+            const piece_end = logical_offset + piece.len;
+
+            if (end <= piece_start or start >= piece_end) {
+                try next_pieces.append(self.allocator, piece);
+            } else {
+                if (start > piece_start) {
+                    try next_pieces.append(self.allocator, .{
+                        .source = piece.source,
+                        .start = piece.start,
+                        .len = start - piece_start,
+                    });
+                }
+
+                if (end < piece_end) {
+                    try next_pieces.append(self.allocator, .{
+                        .source = piece.source,
+                        .start = piece.start + (end - piece_start),
+                        .len = piece_end - end,
+                    });
+                }
+            }
+
+            logical_offset = piece_end;
+        }
+
+        self.pieces.deinit(self.allocator);
+        self.pieces = next_pieces;
+        self.len -= end - start;
+        self.normalizePieces();
+    }
+
+    pub fn byteLen(self: *const PieceTable) usize {
+        return self.len;
+    }
+
+    pub fn toOwnedSlice(self: *const PieceTable, allocator: std.mem.Allocator) ![]u8 {
+        var out = try allocator.alloc(u8, self.len);
+        var out_index: usize = 0;
+        for (self.pieces.items) |piece| {
+            const source = self.sourceSlice(piece);
+            @memcpy(out[out_index .. out_index + source.len], source);
+            out_index += source.len;
+        }
+        return out;
+    }
+
+    fn sourceSlice(self: *const PieceTable, piece: Piece) []const u8 {
+        return switch (piece.source) {
+            .original => self.original[piece.start .. piece.start + piece.len],
+            .add => self.add.items[piece.start .. piece.start + piece.len],
+        };
+    }
+
+    fn normalizePieces(self: *PieceTable) void {
+        if (self.pieces.items.len < 2) return;
+
+        var write_index: usize = 0;
+        for (self.pieces.items) |piece| {
+            if (piece.len == 0) continue;
+            if (write_index == 0) {
+                self.pieces.items[0] = piece;
+                write_index = 1;
+                continue;
+            }
+
+            var prev = &self.pieces.items[write_index - 1];
+            if (prev.source == piece.source and prev.start + prev.len == piece.start) {
+                prev.len += piece.len;
+            } else {
+                self.pieces.items[write_index] = piece;
+                write_index += 1;
+            }
+        }
+        self.pieces.items.len = write_index;
+    }
+};
+
+test "init copy preserves the original text" {
+    var table = try PieceTable.initCopy(std.testing.allocator, "hello");
+    defer table.deinit();
+
+    const actual = try table.toOwnedSlice(std.testing.allocator);
+    defer std.testing.allocator.free(actual);
+
+    try std.testing.expectEqual(@as(usize, 5), table.byteLen());
+    try std.testing.expectEqualStrings("hello", actual);
+}
+
+test "insert places text at the requested offset" {
+    var table = PieceTable.initEmpty(std.testing.allocator);
+    defer table.deinit();
+
+    try table.insert(0, "abc");
+    try table.insert(1, "Z");
+
+    const actual = try table.toOwnedSlice(std.testing.allocator);
+    defer std.testing.allocator.free(actual);
+
+    try std.testing.expectEqualStrings("aZbc", actual);
+}
+
+test "delete removes bytes across piece boundaries" {
+    var table = try PieceTable.initCopy(std.testing.allocator, "hello world");
+    defer table.deinit();
+
+    try table.insert(5, ", brave new");
+    try table.delete(5, 16);
+
+    const actual = try table.toOwnedSlice(std.testing.allocator);
+    defer std.testing.allocator.free(actual);
+
+    try std.testing.expectEqualStrings("hello world", actual);
+}
