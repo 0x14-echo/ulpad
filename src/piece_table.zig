@@ -145,6 +145,40 @@ pub const PieceTable = struct {
         return self.len;
     }
 
+    pub fn copyRangeAlloc(
+        self: *const PieceTable,
+        allocator: std.mem.Allocator,
+        start: usize,
+        end: usize,
+    ) ![]u8 {
+        if (start > end or end > self.len) return error.IndexOutOfBounds;
+
+        var out = try allocator.alloc(u8, end - start);
+        var out_index: usize = 0;
+        var logical_offset: usize = 0;
+
+        for (self.pieces.items) |piece| {
+            const piece_start = logical_offset;
+            const piece_end = logical_offset + piece.len;
+            if (end <= piece_start or start >= piece_end) {
+                logical_offset = piece_end;
+                continue;
+            }
+
+            const overlap_start = @max(start, piece_start);
+            const overlap_end = @min(end, piece_end);
+            const source = self.sourceSlice(piece);
+            const relative_start = overlap_start - piece_start;
+            const relative_end = overlap_end - piece_start;
+            const chunk = source[relative_start..relative_end];
+            @memcpy(out[out_index .. out_index + chunk.len], chunk);
+            out_index += chunk.len;
+            logical_offset = piece_end;
+        }
+
+        return out;
+    }
+
     pub fn toOwnedSlice(self: *const PieceTable, allocator: std.mem.Allocator) ![]u8 {
         var out = try allocator.alloc(u8, self.len);
         var out_index: usize = 0;
@@ -222,4 +256,16 @@ test "delete removes bytes across piece boundaries" {
     defer std.testing.allocator.free(actual);
 
     try std.testing.expectEqualStrings("hello world", actual);
+}
+
+test "copy range returns the requested bytes" {
+    var table = try PieceTable.initCopy(std.testing.allocator, "0123456789");
+    defer table.deinit();
+
+    try table.insert(5, "abc");
+
+    const actual = try table.copyRangeAlloc(std.testing.allocator, 3, 9);
+    defer std.testing.allocator.free(actual);
+
+    try std.testing.expectEqualStrings("34abc5", actual);
 }
