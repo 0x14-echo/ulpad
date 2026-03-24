@@ -12,14 +12,5 @@ pub const types = @import("types.zig");
 pub const input = @import("input.zig");
 pub const render = @import("render.zig");
 pub const editor_io = @import("editor_io.zig");
-
-test {
-    _ = piece_table;
-    _ = line_index;
-    _ = document;
-    _ = search;
-    _ = clipboard;
-    _ = input;
-    _ = render;
-    _ = editor_io;
-}
+pub const ansi = @import("ansi.zig");
+pub const tty = @import("tty.zig");

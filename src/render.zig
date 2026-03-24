@@ -38,8 +38,8 @@ pub fn renderFrame(
 
     const cursor_line = doc.lineOfOffset(cursor);
     const cursor_col = cursor - doc.lineStart(cursor_line);
-    const screen_row = cursor_line - viewport.top_line + 1;
-    const screen_col = cursor_col - viewport.left_col + 1;
+    const screen_row = if (cursor_line >= viewport.top_line) cursor_line - viewport.top_line + 1 else 1;
+    const screen_col = if (cursor_col >= viewport.left_col) cursor_col - viewport.left_col + 1 else 1;
     var cursor_buf: [64]u8 = undefined;
     const cursor_seq = try std.fmt.bufPrint(&cursor_buf, "\x1b[{d};{d}H\x1b[?25h", .{
         screen_row,

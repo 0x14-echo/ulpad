@@ -32,8 +32,16 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run ulpad");
     run_step.dependOn(&run_cmd.step);
 
+    const tests_root = b.createModule(.{
+        .root_source_file = b.path("src/tests/all.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "ulpad", .module = mod },
+        },
+    });
     const mod_tests = b.addTest(.{
-        .root_module = mod,
+        .root_module = tests_root,
     });
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const exe_tests = b.addTest(.{
