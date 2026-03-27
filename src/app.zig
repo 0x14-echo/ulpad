@@ -546,7 +546,7 @@ const Editor = struct {
 
     fn moveHome(self: *Editor) void {
         const line = self.doc.lineOfOffset(self.cursor);
-        self.cursor = self.doc.lineStart(line);
+        self.cursor = self.doc.lineStart(line) orelse 0;
         self.preferred_col = 0;
     }
 
@@ -563,7 +563,7 @@ const Editor = struct {
             @as(usize, 0)
         else
             @min(@as(usize, @intCast(target_line_signed)), self.doc.lineCount() - 1);
-        const target_start = self.doc.lineStart(target_line);
+        const target_start = self.doc.lineStart(target_line) orelse 0;
         const target_end = self.doc.lineContentEnd(target_line);
         self.cursor = @min(target_start + self.preferred_col, target_end);
     }
@@ -578,7 +578,7 @@ const Editor = struct {
 
     fn cursorColumn(self: *const Editor) usize {
         const line = self.doc.lineOfOffset(self.cursor);
-        return self.cursor - self.doc.lineStart(line);
+        return self.cursor - (self.doc.lineStart(line) orelse 0);
     }
 
     fn scrollCursorIntoView(self: *Editor) void {
