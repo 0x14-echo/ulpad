@@ -14,3 +14,4 @@ pub const render = @import("render.zig");
 pub const editor_io = @import("editor_io.zig");
 pub const ansi = @import("ansi.zig");
 pub const tty = @import("tty.zig");
+pub const i18n = @import("i18n.zig");

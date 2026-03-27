@@ -9,6 +9,7 @@ const render = @import("render.zig");
 const search = @import("search.zig");
 const tty = @import("tty.zig");
 const types = @import("types.zig");
+const i18n = @import("i18n.zig");
 
 const Key = types.Key;
 const ScreenSize = types.ScreenSize;
@@ -73,6 +74,7 @@ const Editor = struct {
     match_count: usize = 0,
     current_match: usize = 0,
     case_sensitive: bool = false,
+    locale: i18n.Locale = .en,
 
     fn init(
         allocator: std.mem.Allocator,
@@ -114,8 +116,9 @@ const Editor = struct {
             .quit_armed = false,
             .should_quit = false,
             .screen = .{ .rows = 24, .cols = 80 },
+            .locale = .tr, // Default to Turkish
         };
-        try editor.setStatus("Ctrl-S save | Ctrl-Q quit | Ctrl-B mark | Ctrl-F find | Ctrl-H replace");
+        try editor.setStatus(i18n.get(editor.locale, i18n.Key.status_press_q_to_quit));
         return editor;
     }
 
@@ -157,15 +160,11 @@ const Editor = struct {
     fn promptLine(self: *Editor, allocator: std.mem.Allocator) ![]u8 {
         return switch (self.prompt.kind) {
             .none => allocator.dupe(u8, ""),
-            .find => std.fmt.allocPrint(allocator, "Find: {s}", .{self.prompt.input.items}),
-            .replace_find => std.fmt.allocPrint(allocator, "Replace find: {s}", .{self.prompt.input.items}),
-            .replace_with => std.fmt.allocPrint(allocator, "Replace with: {s}", .{self.prompt.input.items}),
-            .replace_action => std.fmt.allocPrint(
-                allocator,
-                "Replace '{s}' -> '{s}' | Enter=one a=all Esc=cancel",
-                .{ self.prompt.needle.items, self.prompt.replacement.items },
-            ),
-            .save_path => std.fmt.allocPrint(allocator, "Save as: {s}", .{self.prompt.input.items}),
+            .find => std.fmt.allocPrint(allocator, "{s}{s}", .{ i18n.get(self.locale, i18n.Key.prompt_find), self.prompt.input.items }),
+            .replace_find => std.fmt.allocPrint(allocator, "{s}{s}", .{ i18n.get(self.locale, i18n.Key.prompt_replace_find), self.prompt.input.items }),
+            .replace_with => std.fmt.allocPrint(allocator, "{s}{s}", .{ i18n.get(self.locale, i18n.Key.prompt_replace_with), self.prompt.input.items }),
+            .replace_action => allocator.dupe(u8, i18n.get(self.locale, i18n.Key.prompt_replace_action)),
+            .save_path => std.fmt.allocPrint(allocator, "{s}{s}", .{ i18n.get(self.locale, i18n.Key.prompt_save_as), self.prompt.input.items }),
         };
     }
 
@@ -293,7 +292,7 @@ const Editor = struct {
                 self.prompt.kind = .none;
                 self.mode = .normal;
                 self.match_count = 0;
-                try self.setStatus("Canceled");
+                try self.setStatus(i18n.get(self.locale, i18n.Key.status_canceled));
             },
             .backspace => {
                 _ = self.prompt.input.pop();
@@ -320,15 +319,17 @@ const Editor = struct {
         switch (key) {
             .escape => {
                 self.prompt.kind = .none;
-                try self.setStatus("Replace canceled");
+                self.mode = .normal;
+                try self.setStatus(i18n.get(self.locale, i18n.Key.status_canceled));
             },
             .enter => try self.replaceOne(),
             .char => |byte| if (byte == 'a') {
                 const count = try search.replaceAll(&self.doc, self.prompt.needle.items, self.prompt.replacement.items);
                 self.prompt.kind = .none;
+                self.mode = .normal;
                 self.dirty = self.dirty or count != 0;
                 self.clearSelection();
-                try self.setStatusFmt("Replaced {d} matches", .{count});
+                try self.setStatusFmt("{d} {s}", .{ count, i18n.get(self.locale, i18n.Key.status_replace_all) });
             },
             else => {},
         }
@@ -366,10 +367,17 @@ const Editor = struct {
                         self.cursor = match.start;
                         self.selection_anchor = match.end;
                         self.scrollCursorIntoView();
-                        try self.setStatusFmt("Found '{s}' at {d}", .{ self.prompt.input.items, match.start });
+                        try self.setStatusFmt("{s} '{s}' at {d}", .{
+                            i18n.get(self.locale, i18n.Key.prompt_find),
+                            self.prompt.input.items,
+                            match.start,
+                        });
                     } else {
                         self.selection_anchor = null;
-                        try self.setStatusFmt("'{s}' not found", .{self.prompt.input.items});
+                        try self.setStatusFmt("{s} '{s}'", .{
+                            i18n.get(self.locale, i18n.Key.status_not_found),
+                            self.prompt.input.items,
+                        });
                     }
                 }
             },
@@ -427,7 +435,7 @@ const Editor = struct {
 
         try io_mod.saveDocument(self.allocator, self.io, &self.doc, self.file_path.?, self.newline_mode);
         self.dirty = false;
-        try self.setStatusFmt("Saved {s}", .{self.file_path.?});
+        try self.setStatusFmt("{s} {s}", .{ i18n.get(self.locale, i18n.Key.status_saved), self.file_path.? });
     }
 
     fn copySelection(self: *Editor) !void {
@@ -468,7 +476,7 @@ const Editor = struct {
 
     fn replaceOne(self: *Editor) !void {
         if (self.prompt.needle.items.len == 0 or self.prompt.replacement.items.len == 0) {
-            try self.setStatus("No needle or replacement");
+            try self.setStatus(i18n.get(self.locale, i18n.Key.status_no_matches));
             return;
         }
 
@@ -480,9 +488,13 @@ const Editor = struct {
                 try self.doc.replaceRange(m.start, m.end, self.prompt.replacement.items);
                 self.cursor = m.start + self.prompt.replacement.items.len;
                 self.dirty = true;
-                try self.setStatusFmt("Replaced at {d}", .{m.start});
+                try self.setStatusFmt("{s} '{s}' at {d}", .{
+                    i18n.get(self.locale, i18n.Key.prompt_find),
+                    self.prompt.needle.items,
+                    m.start,
+                });
             } else {
-                try self.setStatus("No matches found");
+                try self.setStatus(i18n.get(self.locale, i18n.Key.status_no_matches));
             }
             return;
         };
@@ -491,7 +503,7 @@ const Editor = struct {
         self.cursor = match.start + self.prompt.replacement.items.len;
         self.clearSelection();
         self.dirty = true;
-        try self.setStatus("Replaced one");
+        try self.setStatus(i18n.get(self.locale, i18n.Key.status_replace_one));
     }
 
     fn jumpSearch(self: *Editor, direction: search.Direction) !void {
