@@ -57,12 +57,24 @@ test "parse key handles control and arrow sequences" {
 
 pub fn readKey(fd: std.posix.fd_t) !?Key {
     var buffer: [8]u8 = undefined;
-    const first_read = try std.posix.read(fd, buffer[0..1]);
+    const first_read = std.posix.read(fd, buffer[0..1]) catch |err| {
+        if (err == error.WouldBlock or err == error.InputOutput) {
+            return null;
+        }
+        return err;
+    };
     if (first_read == 0) return null;
+    if (first_read < 0) return error.InputOutput;
 
     if (buffer[0] == '\x1b') {
-        const extra = try std.posix.read(fd, buffer[1..]);
-        if (parseKey(buffer[0 .. 1 + extra])) |parsed| {
+        const extra = std.posix.read(fd, buffer[1..7]) catch |err| {
+            if (err == error.WouldBlock or err == error.InputOutput) {
+                return .escape;
+            }
+            return err;
+        };
+        const total = 1 + @max(extra, 0);
+        if (parseKey(buffer[0..total])) |parsed| {
             return parsed.key;
         }
         return .escape;

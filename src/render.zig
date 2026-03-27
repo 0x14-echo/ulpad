@@ -36,10 +36,15 @@ pub fn renderFrame(
     try appendTruncated(&out, allocator, prompt, screen.cols);
     try out.appendSlice(allocator, "\x1b[K");
 
-    const cursor_line = doc.lineOfOffset(cursor);
-    const cursor_col = cursor - doc.lineStart(cursor_line);
+    const safe_cursor = @min(cursor, doc.byteLen());
+    const cursor_line = doc.lineOfOffset(safe_cursor);
+    const cursor_line_start = doc.lineStart(cursor_line) orelse 0;
+    const cursor_col = safe_cursor - cursor_line_start;
     const screen_row = if (cursor_line >= viewport.top_line) cursor_line - viewport.top_line + 1 else 1;
-    const screen_col = if (cursor_col >= viewport.left_col) cursor_col - viewport.left_col + 1 else 1;
+    const line_start = doc.lineStart(cursor_line) orelse 0;
+    const line_len = doc.lineContentEnd(cursor_line) - line_start;
+    const clamped_col = @min(cursor_col, line_len);
+    const screen_col = if (clamped_col >= viewport.left_col) clamped_col - viewport.left_col + 1 else 1;
     var cursor_buf: [64]u8 = undefined;
     const cursor_seq = try std.fmt.bufPrint(&cursor_buf, "\x1b[{d};{d}H\x1b[?25h", .{
         screen_row,
@@ -59,7 +64,7 @@ fn appendDocumentLine(
     cols: usize,
     selection: ?Selection,
 ) !void {
-    const start = doc.lineStart(line);
+    const start = doc.lineStart(line) orelse 0;
     const content_end = doc.lineContentEnd(line);
     const line_bytes = try doc.sliceAlloc(allocator, start, content_end);
     defer allocator.free(line_bytes);

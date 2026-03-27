@@ -101,7 +101,7 @@ pub const PieceTable = struct {
     }
 
     pub fn delete(self: *PieceTable, start: usize, end: usize) !void {
-        if (start > end or end > self.len) return error.IndexOutOfBounds;
+        if (start > end or start > self.len or end > self.len) return error.IndexOutOfBounds;
         if (start == end) return;
 
         var next_pieces: std.ArrayList(Piece) = .empty;
@@ -151,7 +151,7 @@ pub const PieceTable = struct {
         start: usize,
         end: usize,
     ) ![]u8 {
-        if (start > end or end > self.len) return error.IndexOutOfBounds;
+        if (start > end or start > self.len or end > self.len) return error.IndexOutOfBounds;
 
         var out = try allocator.alloc(u8, end - start);
         var out_index: usize = 0;
@@ -167,7 +167,7 @@ pub const PieceTable = struct {
 
             const overlap_start = @max(start, piece_start);
             const overlap_end = @min(end, piece_end);
-            const source = self.sourceSlice(piece);
+            const source = self.sourceSlice(piece) orelse return error.InvalidSlice;
             const relative_start = overlap_start - piece_start;
             const relative_end = overlap_end - piece_start;
             const chunk = source[relative_start..relative_end];
@@ -183,18 +183,21 @@ pub const PieceTable = struct {
         var out = try allocator.alloc(u8, self.len);
         var out_index: usize = 0;
         for (self.pieces.items) |piece| {
-            const source = self.sourceSlice(piece);
+            const source = self.sourceSlice(piece) orelse return error.InvalidSlice;
             @memcpy(out[out_index .. out_index + source.len], source);
             out_index += source.len;
         }
         return out;
     }
 
-    fn sourceSlice(self: *const PieceTable, piece: Piece) []const u8 {
-        return switch (piece.source) {
-            .original => self.original[piece.start .. piece.start + piece.len],
-            .add => self.add.items[piece.start .. piece.start + piece.len],
+    fn sourceSlice(self: *const PieceTable, piece: Piece) ?[]const u8 {
+        const source = switch (piece.source) {
+            .original => self.original,
+            .add => self.add.items,
         };
+        const end = piece.start + piece.len;
+        if (piece.start >= source.len or end > source.len) return null;
+        return source[piece.start..end];
     }
 
     fn normalizePieces(self: *PieceTable) void {

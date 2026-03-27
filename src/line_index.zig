@@ -30,7 +30,8 @@ pub const LineIndex = struct {
         return self.starts.items.len;
     }
 
-    pub fn lineStart(self: *const LineIndex, line: usize) usize {
+    pub fn lineStart(self: *const LineIndex, line: usize) ?usize {
+        if (line >= self.starts.items.len) return null;
         return self.starts.items[line];
     }
 
@@ -49,6 +50,7 @@ pub const LineIndex = struct {
     }
 
     pub fn lineOfOffset(self: *const LineIndex, offset: usize) usize {
+        if (self.starts.items.len == 0) return 0;
         var left: usize = 0;
         var right: usize = self.starts.items.len;
         while (left + 1 < right) {

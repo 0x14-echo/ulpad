@@ -69,7 +69,7 @@ pub const Document = struct {
         return self.lines.lineOfOffset(offset);
     }
 
-    pub fn lineStart(self: *const Document, line: usize) usize {
+    pub fn lineStart(self: *const Document, line: usize) ?usize {
         return self.lines.lineStart(line);
     }
 
