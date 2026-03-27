@@ -280,6 +280,7 @@ const Editor = struct {
             .escape => {
                 if (self.prompt.kind == .find or self.prompt.kind == .replace_find) {
                     self.cursor = self.prompt.preview_cursor;
+                    self.selection_anchor = null;
                 }
                 self.prompt.kind = .none;
                 try self.setStatus("Canceled");
@@ -288,7 +289,13 @@ const Editor = struct {
                 _ = self.prompt.input.pop();
                 try self.afterPromptEdit();
             },
-            .enter => try self.finishPrompt(),
+            .enter => {
+                if (self.prompt.kind == .replace_action) {
+                    try self.replaceOne();
+                } else {
+                    try self.finishPrompt();
+                }
+            },
             .char => |byte| {
                 if (byte >= 32) {
                     try self.prompt.input.append(self.allocator, byte);
@@ -342,18 +349,16 @@ const Editor = struct {
                 try self.last_search.appendSlice(self.allocator, self.prompt.input.items);
                 self.prompt.kind = .none;
 
-                // İlk arama sonucuna atla
-                if (self.last_search.items.len > 0) {
-                    // Preview cursor'dan başla - mevcut cursor pozisyonunu koru
-                    const search_start = self.prompt.preview_cursor;
-                    if (try search.find(&self.doc, self.last_search.items, search_start, .forward)) |match| {
+                // Her zaman dosyanın başından ara
+                if (self.prompt.input.items.len > 0) {
+                    if (try search.find(&self.doc, self.prompt.input.items, 0, .forward)) |match| {
                         self.cursor = match.start;
                         self.selection_anchor = match.end;
                         self.scrollCursorIntoView();
-                        try self.setStatusFmt("Found '{s}' at {d}", .{ self.last_search.items, match.start });
+                        try self.setStatusFmt("Found '{s}' at {d}", .{ self.prompt.input.items, match.start });
                     } else {
                         self.selection_anchor = null;
-                        try self.setStatusFmt("'{s}' not found", .{self.last_search.items});
+                        try self.setStatusFmt("'{s}' not found", .{self.prompt.input.items});
                     }
                 }
             },
@@ -444,8 +449,23 @@ const Editor = struct {
     }
 
     fn replaceOne(self: *Editor) !void {
+        if (self.prompt.needle.items.len == 0 or self.prompt.replacement.items.len == 0) {
+            try self.setStatus("No needle or replacement");
+            return;
+        }
+
+        // Her zaman cursor'dan sonra ara
         const match = (try search.find(&self.doc, self.prompt.needle.items, self.cursor, .forward)) orelse {
-            try self.setStatus("No further matches");
+            // Buldun bulmadın baştan dene
+            const retry = try search.find(&self.doc, self.prompt.needle.items, 0, .forward);
+            if (retry) |m| {
+                try self.doc.replaceRange(m.start, m.end, self.prompt.replacement.items);
+                self.cursor = m.start + self.prompt.replacement.items.len;
+                self.dirty = true;
+                try self.setStatusFmt("Replaced at {d}", .{m.start});
+            } else {
+                try self.setStatus("No matches found");
+            }
             return;
         };
 
@@ -453,7 +473,7 @@ const Editor = struct {
         self.cursor = match.start + self.prompt.replacement.items.len;
         self.clearSelection();
         self.dirty = true;
-        try self.setStatus("Replaced one match");
+        try self.setStatus("Replaced one");
     }
 
     fn jumpSearch(self: *Editor, direction: search.Direction) !void {
