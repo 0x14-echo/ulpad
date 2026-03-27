@@ -222,6 +222,74 @@ pub const PieceTable = struct {
         }
         self.pieces.items.len = write_index;
     }
+
+    pub const Match = struct { start: usize, end: usize };
+
+    pub fn iterate(self: *const PieceTable, from: usize, needle: []const u8, forward: bool) ?Match {
+        if (needle.len == 0 or self.len == 0) return null;
+        if (from > self.len) return null;
+
+        const search_start: usize = if (forward) from else 0;
+        const search_end: usize = if (forward) self.len else if (from >= needle.len) from - needle.len + 1 else 0;
+
+        var pos: usize = search_start;
+        const max_chunk: usize = 4096;
+
+        while (pos < search_end) {
+            const remaining = search_end - pos;
+            const to_read = @min(remaining, max_chunk);
+            const chunk = self.readChunk(pos, to_read) orelse break;
+
+            var search_pos: usize = 0;
+            while (search_pos < chunk.len) {
+                if (chunk.len - search_pos < needle.len) break;
+                if (chunk[search_pos] == needle[0]) {
+                    var match = true;
+                    for (needle, 1..) |c, i| {
+                        if (chunk[search_pos + i] != c) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match) {
+                        const absolute_pos = pos + search_pos;
+                        return .{ .start = absolute_pos, .end = absolute_pos + needle.len };
+                    }
+                }
+                search_pos += 1;
+            }
+
+            pos += to_read;
+        }
+
+        return null;
+    }
+
+    fn readChunk(self: *const PieceTable, offset: usize, max_len: usize) ?[]u8 {
+        var result: usize = 0;
+        var logical_offset: usize = 0;
+        var buffer: [4096]u8 = undefined;
+
+        for (self.pieces.items) |piece| {
+            const piece_start = logical_offset;
+            const piece_end = logical_offset + piece.len;
+
+            if (offset >= piece_start and offset < piece_end) {
+                const source = self.sourceSlice(piece) orelse return null;
+                const start_in_piece = offset - piece_start;
+                const available = piece.len - start_in_piece;
+                const to_copy = @min(@min(available, max_len - result), buffer.len - result);
+                @memcpy(buffer[result .. result + to_copy], source[start_in_piece .. start_in_piece + to_copy]);
+                result += to_copy;
+                if (result >= max_len or result >= buffer.len) break;
+            }
+
+            logical_offset = piece_end;
+        }
+
+        if (result == 0) return null;
+        return buffer[0..result];
+    }
 };
 
 test "init copy preserves the original text" {

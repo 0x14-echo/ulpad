@@ -218,7 +218,7 @@ const Editor = struct {
             },
             else => {},
         }
-        
+
         // quit_armed'ı sadece Ctrl+Q dışındaki tuşlarda resetle
         if (self.prompt.kind == .none and !is_ctrl_q) {
             self.quit_armed = false;
@@ -321,13 +321,17 @@ const Editor = struct {
         if (self.prompt.kind == .find or self.prompt.kind == .replace_find) {
             if (self.prompt.input.items.len == 0) {
                 self.cursor = self.prompt.preview_cursor;
+                self.selection_anchor = null;
                 return;
             }
 
             if (try search.find(&self.doc, self.prompt.input.items, self.prompt.preview_cursor, .forward)) |match| {
                 self.cursor = match.start;
+                self.selection_anchor = match.end;
+            } else {
+                self.selection_anchor = null;
             }
-            // "Not found" mesajını burada gösterme - sadece finishPrompt'ta göster
+            self.scrollCursorIntoView();
         }
     }
 
@@ -337,15 +341,18 @@ const Editor = struct {
                 try self.last_search.resize(self.allocator, 0);
                 try self.last_search.appendSlice(self.allocator, self.prompt.input.items);
                 self.prompt.kind = .none;
-                
+
                 // İlk arama sonucuna atla
                 if (self.last_search.items.len > 0) {
                     // Preview cursor'dan başla - mevcut cursor pozisyonunu koru
                     const search_start = self.prompt.preview_cursor;
                     if (try search.find(&self.doc, self.last_search.items, search_start, .forward)) |match| {
                         self.cursor = match.start;
+                        self.selection_anchor = match.end;
+                        self.scrollCursorIntoView();
                         try self.setStatusFmt("Found '{s}' at {d}", .{ self.last_search.items, match.start });
                     } else {
+                        self.selection_anchor = null;
                         try self.setStatusFmt("'{s}' not found", .{self.last_search.items});
                     }
                 }

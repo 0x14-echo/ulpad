@@ -1,6 +1,7 @@
 const std = @import("std");
 const PieceTable = @import("piece_table.zig").PieceTable;
 const LineIndex = @import("line_index.zig").LineIndex;
+const Match = @import("piece_table.zig").PieceTable.Match;
 
 pub const Document = struct {
     allocator: std.mem.Allocator,
