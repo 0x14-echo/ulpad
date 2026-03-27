@@ -14,6 +14,7 @@ const Key = types.Key;
 const ScreenSize = types.ScreenSize;
 const Selection = types.Selection;
 const Viewport = types.Viewport;
+const EditorMode = types.EditorMode;
 
 const PromptKind = enum {
     none,
@@ -68,6 +69,10 @@ const Editor = struct {
     quit_armed: bool,
     should_quit: bool,
     screen: ScreenSize,
+    mode: EditorMode = .normal,
+    match_count: usize = 0,
+    current_match: usize = 0,
+    case_sensitive: bool = false,
 
     fn init(
         allocator: std.mem.Allocator,
@@ -188,7 +193,7 @@ const Editor = struct {
         const prompt_line = try self.promptLine(self.allocator);
         defer self.allocator.free(prompt_line);
 
-        const frame = try render.renderFrame(
+        const frame = try render.renderFrameEx(
             self.allocator,
             &self.doc,
             self.cursor,
@@ -197,6 +202,9 @@ const Editor = struct {
             self.screen,
             self.status.items,
             prompt_line,
+            self.mode,
+            self.match_count,
+            self.current_match,
         );
         defer self.allocator.free(frame);
 
@@ -283,6 +291,8 @@ const Editor = struct {
                     self.selection_anchor = null;
                 }
                 self.prompt.kind = .none;
+                self.mode = .normal;
+                self.match_count = 0;
                 try self.setStatus("Canceled");
             },
             .backspace => {
@@ -348,6 +358,7 @@ const Editor = struct {
                 try self.last_search.resize(self.allocator, 0);
                 try self.last_search.appendSlice(self.allocator, self.prompt.input.items);
                 self.prompt.kind = .none;
+                self.mode = .normal;
 
                 // Her zaman dosyanın başından ara
                 if (self.prompt.input.items.len > 0) {
@@ -380,6 +391,7 @@ const Editor = struct {
                 if (self.file_path) |path| self.allocator.free(path);
                 self.file_path = try self.allocator.dupe(u8, self.prompt.input.items);
                 self.prompt.kind = .none;
+                self.mode = .normal;
                 try self.save();
             },
             else => {},
@@ -390,6 +402,9 @@ const Editor = struct {
         self.prompt.kind = .find;
         self.prompt.preview_cursor = self.cursor;
         self.prompt.clearInput();
+        self.mode = .find;
+        self.match_count = 0;
+        self.current_match = 0;
     }
 
     fn openReplacePrompt(self: *Editor) !void {
@@ -398,6 +413,9 @@ const Editor = struct {
         self.prompt.clearInput();
         self.prompt.needle.clearRetainingCapacity();
         self.prompt.replacement.clearRetainingCapacity();
+        self.mode = .replace;
+        self.match_count = 0;
+        self.current_match = 0;
     }
 
     fn save(self: *Editor) !void {

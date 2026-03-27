@@ -13,6 +13,12 @@ pub const Selection = struct {
     end: usize,
 };
 
+pub const EditorMode = enum {
+    normal,
+    find,
+    replace,
+};
+
 pub const Key = union(enum) {
     char: u8,
     ctrl: u8,

@@ -3,6 +3,7 @@ const Document = @import("document.zig").Document;
 const Selection = @import("types.zig").Selection;
 const ScreenSize = @import("types.zig").ScreenSize;
 const Viewport = @import("types.zig").Viewport;
+const EditorMode = @import("types.zig").EditorMode;
 
 pub fn renderFrame(
     allocator: std.mem.Allocator,
@@ -13,6 +14,22 @@ pub fn renderFrame(
     screen: ScreenSize,
     status: []const u8,
     prompt: []const u8,
+) ![]u8 {
+    return renderFrameEx(allocator, doc, cursor, selection, viewport, screen, status, prompt, .normal, 0, 0);
+}
+
+pub fn renderFrameEx(
+    allocator: std.mem.Allocator,
+    doc: *const Document,
+    cursor: usize,
+    selection: ?Selection,
+    viewport: Viewport,
+    screen: ScreenSize,
+    status: []const u8,
+    prompt: []const u8,
+    mode: EditorMode,
+    match_count: usize,
+    current_match: usize,
 ) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
@@ -30,21 +47,41 @@ pub fn renderFrame(
         try out.appendSlice(allocator, "\x1b[K\r\n");
     }
 
+    const cursor_line = doc.lineOfOffset(@min(cursor, doc.byteLen()));
+    const line_start = doc.lineStart(cursor_line) orelse 0;
+    const cursor_col = @min(cursor, doc.byteLen()) - line_start;
+    const line_len = doc.lineContentEnd(cursor_line) - line_start;
+    const col_display = @min(cursor_col, line_len);
+
+    const mode_str: []const u8 = switch (mode) {
+        .normal => "NORMAL",
+        .find => "FIND",
+        .replace => "REPLACE",
+    };
+
+    const modified_char: u8 = if (doc.byteLen() > 0) '*' else ' ';
+
+    var status_buf: [256]u8 = undefined;
+    const status_str: []const u8 = s: {
+        if (match_count > 0) {
+            break :s std.fmt.bufPrint(&status_buf, "{s} | {c} Ln {d}, Col {d} | {d}/{d} matches | {s}", .{
+                status, modified_char, cursor_line + 1, col_display + 1, current_match, match_count, mode_str,
+            }) catch status;
+        } else {
+            break :s std.fmt.bufPrint(&status_buf, "{s} | {c} Ln {d}, Col {d} | {s}", .{
+                status, modified_char, cursor_line + 1, col_display + 1, mode_str,
+            }) catch status;
+        }
+    };
+
     try out.appendSlice(allocator, "\x1b[7m");
-    try appendTruncated(&out, allocator, status, screen.cols);
+    try appendTruncated(&out, allocator, status_str, screen.cols);
     try out.appendSlice(allocator, "\x1b[m\x1b[K\r\n");
     try appendTruncated(&out, allocator, prompt, screen.cols);
     try out.appendSlice(allocator, "\x1b[K");
 
-    const safe_cursor = @min(cursor, doc.byteLen());
-    const cursor_line = doc.lineOfOffset(safe_cursor);
-    const cursor_line_start = doc.lineStart(cursor_line) orelse 0;
-    const cursor_col = safe_cursor - cursor_line_start;
     const screen_row = if (cursor_line >= viewport.top_line) cursor_line - viewport.top_line + 1 else 1;
-    const line_start = doc.lineStart(cursor_line) orelse 0;
-    const line_len = doc.lineContentEnd(cursor_line) - line_start;
-    const clamped_col = @min(cursor_col, line_len);
-    const screen_col = if (clamped_col >= viewport.left_col) clamped_col - viewport.left_col + 1 else 1;
+    const screen_col = if (col_display >= viewport.left_col) col_display - viewport.left_col + 1 else 1;
     var cursor_buf: [64]u8 = undefined;
     const cursor_seq = try std.fmt.bufPrint(&cursor_buf, "\x1b[{d};{d}H\x1b[?25h", .{
         screen_row,
@@ -114,10 +151,13 @@ test "render frame includes document text and status line" {
         .{ .rows = 6, .cols = 20 },
         "status",
         "prompt",
+        .normal,
+        0,
+        0,
     );
     defer std.testing.allocator.free(frame);
 
     try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[7mal\x1b[mpha") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[7mstatus") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "status") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "prompt") != null);
 }

@@ -33,6 +33,21 @@ pub fn find(doc: *const Document, needle: []const u8, from: usize, direction: Di
     };
 }
 
+pub fn findAll(doc: *const Document, needle: []const u8) !usize {
+    if (needle.len == 0) return 0;
+
+    const text = try doc.textAlloc(doc.allocator);
+    defer doc.allocator.free(text);
+
+    var count: usize = 0;
+    var pos: usize = 0;
+    while (std.mem.indexOf(u8, text[pos..], needle)) |relative| {
+        count += 1;
+        pos += relative + needle.len;
+    }
+    return count;
+}
+
 pub fn replaceAll(doc: *Document, needle: []const u8, replacement: []const u8) !usize {
     if (needle.len == 0) return 0;
 
