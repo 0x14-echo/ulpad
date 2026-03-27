@@ -209,7 +209,21 @@ const Editor = struct {
             return;
         }
 
-        self.quit_armed = false;
+        var is_ctrl_q = false;
+        switch (key) {
+            .ctrl => |c| {
+                if (c == 'q') {
+                    is_ctrl_q = true;
+                }
+            },
+            else => {},
+        }
+        
+        // quit_armed'ı sadece Ctrl+Q dışındaki tuşlarda resetle
+        if (self.prompt.kind == .none and !is_ctrl_q) {
+            self.quit_armed = false;
+        }
+
         switch (key) {
             .arrow_left => self.moveLeft(),
             .arrow_right => self.moveRight(),
@@ -239,6 +253,7 @@ const Editor = struct {
                     self.should_quit = true;
                 }
             },
+            'a' => self.selectAll(),
             's' => try self.save(),
             'f' => try self.openFindPrompt(),
             'h' => try self.openReplacePrompt(),
@@ -311,9 +326,8 @@ const Editor = struct {
 
             if (try search.find(&self.doc, self.prompt.input.items, self.prompt.preview_cursor, .forward)) |match| {
                 self.cursor = match.start;
-            } else {
-                try self.setStatus("Not found");
             }
+            // "Not found" mesajını burada gösterme - sadece finishPrompt'ta göster
         }
     }
 
@@ -323,7 +337,18 @@ const Editor = struct {
                 try self.last_search.resize(self.allocator, 0);
                 try self.last_search.appendSlice(self.allocator, self.prompt.input.items);
                 self.prompt.kind = .none;
-                try self.setStatusFmt("Search: {s}", .{self.last_search.items});
+                
+                // İlk arama sonucuna atla
+                if (self.last_search.items.len > 0) {
+                    // Preview cursor'dan başla - mevcut cursor pozisyonunu koru
+                    const search_start = self.prompt.preview_cursor;
+                    if (try search.find(&self.doc, self.last_search.items, search_start, .forward)) |match| {
+                        self.cursor = match.start;
+                        try self.setStatusFmt("Found '{s}' at {d}", .{ self.last_search.items, match.start });
+                    } else {
+                        try self.setStatusFmt("'{s}' not found", .{self.last_search.items});
+                    }
+                }
             },
             .replace_find => {
                 self.prompt.needle.clearRetainingCapacity();
@@ -437,6 +462,13 @@ const Editor = struct {
             try self.setStatusFmt("Match at {d}", .{match.start});
         } else {
             try self.setStatus("No match");
+        }
+    }
+
+    fn selectAll(self: *Editor) void {
+        if (self.doc.byteLen() > 0) {
+            self.selection_anchor = 0;
+            self.cursor = self.doc.byteLen();
         }
     }
 
